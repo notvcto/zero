@@ -22,7 +22,7 @@ zero-3b         ← primary release, the sweet spot
 zero-7b         ← MVR upper bound, ceiling of the study
 zero-3b-raw     ← maximum directness variant (post-study)
 
-zero-forge      ← problem generator (training artifact, also published)
+zero-forge      ← problem generator (training artifact, kept private.)
 zero-solve      ← reasoning solver (becomes zero-3b at release)
 ```
 
@@ -197,7 +197,7 @@ Recruit from CTFtime community, r/netsec, or HTB forums at release.
   - notvcto/zero-3b on HuggingFace Hub
   - Ollama model library submission (zero)
   - MIT or Apache 2.0 license (TBD)
-  - zero-forge published separately as notvcto/zero-forge
+  - zero-forge kept private (for now)
 
 ---
 
