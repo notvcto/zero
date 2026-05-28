@@ -14,26 +14,38 @@ Trained on CTF challenges (web exploitation, reverse engineering, cryptography, 
 
 ## Model family
 
-| Model | Status | Notes |
-|---|---|---|
+| Model       | Status  | Notes           |
+| ----------- | ------- | --------------- |
 | `zero-1.5b` | Planned | MVR lower bound |
-| `zero-3b` | Planned | Primary release |
-| `zero-7b` | Planned | MVR upper bound |
+| `zero-3b`   | Planned | Primary release |
+| `zero-7b`   | Planned | MVR upper bound |
 
 ---
 
 ## Spec
 
-The full design is in **[SPEC.md](./SPEC.md)** — training architecture, reward function implementation, self-play failure mode mitigations, evaluation framework, dataset strategy.
+The full design is in **[SPEC.md](SPEC.md)** — training architecture, reward function implementation, self-play failure mode mitigations, evaluation framework, dataset strategy.
 
 ---
 
 ## Status
 
-**Phase 1 — Baseline mapping.** Not yet trained. Establishing where reasoning currently lives across model sizes before any training begins.
+**Phase 2 — Dataset construction.** Phase 1 baseline evaluation is complete. All three model sizes scored ~25% on security reasoning problems with no training. Scaling did nothing — the capability gap is in training signal, not base weights. Phase 2 is now underway: building the seed dataset from real CTF writeups, normalized into Zero's voice register.
+
+**[Phase 1 results →](https://notvc.to/blog/zero-phase1-results)**
+
+### Phases
+
+| Phase | Description | Status |
+| ----- | ----------- | ------ |
+| 1 | Baseline mapping across model sizes | ✅ Complete |
+| 2 | Seed dataset construction | 🔄 In progress |
+| 3 | zero-forge training | Pending |
+| 4 | GRPO self-play loop | Pending |
+| 5 | MVR analysis + release | Pending |
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](./LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).
