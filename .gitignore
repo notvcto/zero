@@ -1,6 +1,11 @@
 # graphify
 graphify-out/
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
 # venv
 .venv/
 venv/
