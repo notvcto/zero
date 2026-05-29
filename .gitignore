@@ -1,0 +1,13 @@
+# graphify
+graphify-out/
+
+# venv
+.venv/
+venv/
+env/
+
+# env secrets
+.env
+
+# data
+phase2/data/
