@@ -126,23 +126,21 @@ def scrape(cookie: str, max_pages: int = 20, max_per_page: int = 50) -> Iterator
             if len(cells) < 3:
                 continue
 
-            # cells[0] has two links: event (/event/<id>) and writeup (/writeup/<id>)
-            all_links = cells[0].find_all("a")
-            writeup_tag = next((a for a in all_links if "/writeup/" in a.get("href", "")), None)
-            event_tag = next((a for a in all_links if "/event/" in a.get("href", "")), None)
-
-            # Skip rows with no writeup link
-            if writeup_tag is None:
-                log.debug(f"no writeup link in row, skipping")
+            # Row structure: cells[0]=event, cells[1]=task, cells[2]=?, cells[3]=team, cells[4]=writeup
+            if len(cells) < 5:
+                continue
+            title_tag = cells[0].find("a")
+            writeup_tag = cells[4].find("a")
+            if not title_tag or not writeup_tag:
                 continue
 
-            title = (event_tag or writeup_tag).get_text(strip=True)
+            title = f"{title_tag.get_text(strip=True)} — {cells[1].get_text(strip=True)}"
             href = writeup_tag.get("href", "")
             if not href.startswith("http"):
                 href = BASE + href
 
-            # category from row
-            cat_text = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+            # category from task name (cells[1])
+            cat_text = cells[1].get_text(strip=True)
             category = _parse_category(cat_text)
 
             writeup_soup = _get(session, href)
