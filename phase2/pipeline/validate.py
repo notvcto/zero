@@ -35,6 +35,12 @@ class Validator:
             self.stats["rejected_validation"] += 1
             return False
 
+        # Reject pass-through garbage: all three fields identical = no enrichment happened
+        if triple.challenge == triple.reasoning_chain == triple.solution:
+            log.debug(f"  ✗ identical fields (unenriched pass-through): {triple.id}")
+            self.stats["rejected_validation"] += 1
+            return False
+
         # Dedup by id
         if triple.id in self._seen_ids:
             log.debug(f"  ✗ duplicate id: {triple.id}")

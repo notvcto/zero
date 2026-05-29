@@ -5,6 +5,7 @@ Requires: CTFTIME_SESSION cookie
 """
 
 import os
+import re
 import time
 import logging
 from typing import Iterator
@@ -62,23 +63,26 @@ def _parse_category(text: str) -> str:
 
 def _parse_writeup_page(soup: BeautifulSoup, url: str, title: str, category: str) -> RawEntry | None:
     """Extract raw text from a single writeup page."""
+    # Must be an actual writeup URL, not an event page
+    if "/event/" in url and "/writeup/" not in url:
+        log.debug(f"skipping event page (not a writeup): {url}")
+        return None
+
     content = (
         soup.find("div", class_="well")
         or soup.find("article")
         or soup.find("div", id="content")
-        or soup.find("main")
     )
     if not content:
         log.warning(f"no content block found at {url}")
         return None
 
     raw_text = content.get_text(separator="\n", strip=True)
-    if len(raw_text) < 100:
+    if len(raw_text) < 200:
         return None
 
     # Try to find flag
     flag = None
-    import re
     flag_match = re.search(r"(flag\{[^}]+\}|CTF\{[^}]+\}|picoCTF\{[^}]+\}|\w+CTF\{[^}]+\})", raw_text, re.IGNORECASE)
     if flag_match:
         flag = flag_match.group(1)
@@ -98,6 +102,8 @@ def scrape(cookie: str, max_pages: int = 20, max_per_page: int = 50) -> Iterator
     """
     Yield RawEntry objects from CTFtime writeups.
     Paginates through the writeup listing.
+    Each row has two links: event page (/event/<id>) and writeup (/writeup/<id>).
+    We grab the writeup link only.
     """
     session = _session(cookie)
     page = 1
@@ -120,12 +126,18 @@ def scrape(cookie: str, max_pages: int = 20, max_per_page: int = 50) -> Iterator
             if len(cells) < 3:
                 continue
 
-            # title + link
-            link_tag = cells[0].find("a")
-            if not link_tag:
+            # cells[0] has two links: event (/event/<id>) and writeup (/writeup/<id>)
+            all_links = cells[0].find_all("a")
+            writeup_tag = next((a for a in all_links if "/writeup/" in a.get("href", "")), None)
+            event_tag = next((a for a in all_links if "/event/" in a.get("href", "")), None)
+
+            # Skip rows with no writeup link
+            if writeup_tag is None:
+                log.debug(f"no writeup link in row, skipping")
                 continue
-            title = link_tag.get_text(strip=True)
-            href = link_tag.get("href", "")
+
+            title = (event_tag or writeup_tag).get_text(strip=True)
+            href = writeup_tag.get("href", "")
             if not href.startswith("http"):
                 href = BASE + href
 
