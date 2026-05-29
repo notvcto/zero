@@ -1,5 +1,4 @@
 # zero
-
 > A small reasoning model trained on security problems. No hedging. No sugar coating.
 
 **[Read the announcement →](https://notvc.to/blog/zero-announcement)**
@@ -36,10 +35,16 @@ implementation, self-play failure mode mitigations, evaluation framework, datase
 
 ## Status
 
-**Phase 2 — Dataset construction.** Phase 1 baseline evaluation is complete. All three
-model sizes scored ~25% with no training. Scaling did nothing — the capability gap is in
-training signal, not base weights. Phase 2 is now underway: building the seed dataset from
-real CTF writeups, normalized into Zero's voice register.
+**Phase 2 — Dataset construction.** The seed corpus pipeline is built and running:
+four scrapers (CTFtime, PicoCTF, HTB official API, HTB community writeups), normalization,
+uncertainty injection, and a push to HuggingFace. Enrichment pass starts tomorrow.
+Dataset will be public at `notvcto/zero-dataset` once complete.
+
+**[Phase 2 write-up →](https://notvc.to/blog/zero-phase2-raw-material)**
+
+Phase 1 baseline evaluation is complete. All three model sizes scored ~25% with no
+training. Scaling did nothing — the capability gap is in training signal, not base
+weights.
 
 **[Phase 1 results →](https://notvc.to/blog/zero-phase1-results)**
 
