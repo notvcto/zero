@@ -35,7 +35,18 @@ CATEGORY_KEYWORDS = {
 SEARCH_QUERIES = [
     "topic:ctf-writeups",
     "topic:ctf-writeup",
-    "ctf writeup in:description",
+]
+
+# Repo-level blocklist: substrings to reject in repo name or description.
+# Simple substring match — no regex edge cases with word boundaries.
+NON_CTF_BLOCKLIST = [
+    "privilege-escalation", "privilege_escalation",
+    "censorship", "dictatorship",
+    "cheatsheet", "cheat-sheet", "cheat_sheet",
+    "awesome-list", "resource-list", "tool-list",
+    "awesome-pentest", "awesome-osint", "awesome-hacking",
+    "learning-path", "learning_path",
+    "news", "journal", "politic",
 ]
 
 MAX_FILE_SIZE = 500 * 1024  # 500KB
@@ -105,7 +116,16 @@ class GitHubScraper:
                     repos.append(item)
 
         repos.sort(key=lambda r: r.get("stargazers_count", 0), reverse=True)
-        return repos[: self.max_repos]
+
+        filtered = []
+        for r in repos:
+            haystack = (r.get("name", "") + " " + (r.get("description") or "")).lower()
+            if any(kw in haystack for kw in NON_CTF_BLOCKLIST):
+                log.debug(f"Skipping non-CTF repo: {r['full_name']}")
+                continue
+            filtered.append(r)
+
+        return filtered[: self.max_repos]
 
     def list_md_files(self, owner: str, repo: str, branch: str) -> list[dict]:
         resp = self._get(
@@ -161,13 +181,15 @@ class GitHubScraper:
         if not self._is_english(content):
             return None
 
+        # Require at least one flag pattern — hard gate for non-writeup files
         flag_match = FLAG_RE.search(content)
-        flag = flag_match.group(1) if flag_match else None
+        if flag_match is None:
+            return None
+        flag = flag_match.group(1)
 
-        if flag_match:
-            pre_flag = content[: flag_match.start()]
-            if len([l for l in pre_flag.splitlines() if l.strip()]) < 3:
-                return None
+        pre_flag = content[: flag_match.start()]
+        if len([l for l in pre_flag.splitlines() if l.strip()]) < 3:
+            return None
 
         # Split into sections on ## headers
         sections = re.split(r"^##+ ", content, flags=re.MULTILINE)
