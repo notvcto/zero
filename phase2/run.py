@@ -4,35 +4,30 @@ Phase 2: Seed Dataset Construction
 
 Usage:
     python run.py                          # full pipeline
-    python run.py --sources ctftime        # single source
-    python run.py --dry-run                # no Claude API calls, no HF push
+    python run.py --sources github         # single source
+    python run.py --scrape-only --no-push  # no HF push
     python run.py --no-push                # skip HF upload
 
 Env vars (or .env file):
-    CTFTIME_SESSION    CTFtime session cookie
-    HTB_TOKEN          HackTheBox App Token
-    ANTHROPIC_API_KEY  Anthropic API key
-    HF_TOKEN           HuggingFace write token
+    GITHUB_TOKEN     GitHub fine-grained PAT (read-only public repos)
+    HTB_TOKEN        HackTheBox App Token
+    HF_TOKEN         HuggingFace write token
 """
 
 import os
 import sys
 import argparse
 import logging
-import json
 from pathlib import Path
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add phase2 to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from schema import Triple, RawEntry
-from pipeline.scrapers import ctftime, picoctf, htb_official, htb_community
+from pipeline.scrapers import github, picoctf, htb_official, htb_community
 from pipeline.normalize import normalize
-from pipeline.enrich import enrich
 from pipeline.inject import inject
 from pipeline.validate import Validator
 from pipeline.push import push
@@ -53,15 +48,15 @@ def parse_args():
     p.add_argument(
         "--sources",
         nargs="+",
-        choices=["ctftime", "picoctf", "htb_official", "htb_community"],
-        default=["ctftime", "picoctf", "htb_official", "htb_community"],
+        choices=["github", "picoctf", "htb_official", "htb_community"],
+        default=["github", "picoctf", "htb_official", "htb_community"],
         help="Which sources to scrape (default: all)",
     )
-    p.add_argument("--scrape-only", action="store_true", help="Scrape + normalize only, write raw.jsonl for manual enrichment via Claude Code")
-    p.add_argument("--dry-run", action="store_true", help="Scrape only, no HF push (alias for --scrape-only --no-push)")
+    p.add_argument("--scrape-only", action="store_true", help="Scrape + normalize only, skip HF push")
     p.add_argument("--no-push", action="store_true", help="Skip HuggingFace upload")
     p.add_argument("--output", default="data/seed.jsonl", help="Output JSONL path")
-    p.add_argument("--max-ctftime-pages", type=int, default=20)
+    p.add_argument("--max-github-repos", type=int, default=100)
+    p.add_argument("--max-files-per-repo", type=int, default=50)
     p.add_argument("--max-pico", type=int, default=500)
     p.add_argument("--max-htb-machines", type=int, default=200)
     p.add_argument("--max-oxdf", type=int, default=100)
@@ -70,10 +65,10 @@ def parse_args():
     return p.parse_args()
 
 
-def check_env(sources: list[str], dry_run: bool, no_push: bool):
+def check_env(sources: list[str], no_push: bool):
     missing = []
-    if "ctftime" in sources and not os.environ.get("CTFTIME_SESSION"):
-        missing.append("CTFTIME_SESSION")
+    if "github" in sources and not os.environ.get("GITHUB_TOKEN"):
+        missing.append("GITHUB_TOKEN (optional — unauthenticated rate limit is 60 req/hour)")
     if ("htb_official" in sources or "htb_community" in sources) and not os.environ.get("HTB_TOKEN"):
         missing.append("HTB_TOKEN (optional for htb_community)")
     if not no_push and not os.environ.get("HF_TOKEN"):
@@ -84,17 +79,19 @@ def check_env(sources: list[str], dry_run: bool, no_push: bool):
         log.error(f"Missing required env vars: {', '.join(hard_missing)}")
         log.error("Copy .env.example to .env and fill in your credentials.")
         sys.exit(1)
-    if missing:
-        for m in missing:
-            log.warning(f"Optional env var not set: {m}")
+    for m in missing:
+        log.warning(f"Optional env var not set: {m}")
 
 
 def iter_raw_entries(sources: list[str], args) -> iter:
-    """Yield RawEntry objects from all configured sources."""
-    if "ctftime" in sources:
-        log.info("=== CTFtime ===")
-        cookie = os.environ.get("CTFTIME_SESSION", "")
-        yield from ctftime.scrape(cookie, max_pages=args.max_ctftime_pages)
+    if "github" in sources:
+        log.info("=== GitHub ===")
+        token = os.environ.get("GITHUB_TOKEN", "")
+        yield from github.scrape(
+            token,
+            max_repos=args.max_github_repos,
+            max_files_per_repo=args.max_files_per_repo,
+        )
 
     if "picoctf" in sources:
         log.info("=== PicoCTF ===")
@@ -113,45 +110,26 @@ def iter_raw_entries(sources: list[str], args) -> iter:
         )
 
 
-def process_entry(entry: RawEntry, dry_run: bool) -> Triple | None:
-    """Full pipeline for a single entry: normalize → inject → enrich → validate."""
-    # 1. Normalize
+def process_entry(entry: RawEntry) -> Triple | None:
     normalized = normalize(entry)
     if not normalized["challenge"].strip():
         log.debug(f"skipping empty challenge: {entry.title}")
         return None
 
-    # 2. Uncertainty injection
     normalized, is_abstention = inject(entry, normalized)
 
-    # 3. Enrich (skip in dry-run)
-    if dry_run:
-        enriched = {
-            "challenge": normalized["challenge"],
-            "reasoning_chain": "[DRY RUN - no Claude call]",
-            "solution": normalized.get("solution_hint", "") or "unknown",
-        }
-    else:
-        enriched = enrich(entry, normalized, abstention=is_abstention)
-        if enriched is None:
-            return None
-
-    # 4. Build triple
+    steps_text = "\n\n".join(normalized.get("steps_raw", [])) or ""
     triple = Triple(
         id=Triple.make_id(entry.source, entry.title, entry.url),
         source=entry.source,
         category=entry.category,
         difficulty=entry.difficulty,
-        challenge=enriched["challenge"],
-        reasoning_chain=enriched["reasoning_chain"],
-        solution=enriched["solution"],
+        challenge=normalized["challenge"],
+        reasoning_chain=steps_text or normalized.get("solution_hint", ""),
+        solution=normalized.get("solution_hint", "") or normalized.get("flag", "unknown"),
         flag=normalized.get("flag"),
         abstention=is_abstention,
-        metadata={
-            **entry.metadata,
-            "title": entry.title,
-            "url": entry.url,
-        },
+        metadata={**entry.metadata, "title": entry.title, "url": entry.url},
     )
     return triple
 
@@ -160,15 +138,14 @@ def main():
     args = parse_args()
     setup_logging(args.log_level)
 
+    no_push = args.no_push or args.scrape_only
+
     log.info("Zero Dataset Pipeline — Phase 2")
     log.info(f"Sources: {', '.join(args.sources)}")
     log.info(f"Output:  {args.output}")
-    if args.dry_run:
-        log.info("DRY RUN — Claude API and HF push disabled")
 
-    check_env(args.sources, args.dry_run, args.no_push)
+    check_env(args.sources, no_push)
 
-    # Ensure output directory exists
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -180,7 +157,7 @@ def main():
         for entry in iter_raw_entries(args.sources, args):
             total_raw += 1
 
-            triple = process_entry(entry, args.dry_run)
+            triple = process_entry(entry)
             if triple is None:
                 continue
 
@@ -193,7 +170,7 @@ def main():
                     log.info(f"  → {total_written} triples written so far")
 
     log.info("")
-    log.info(f"=== Pipeline complete ===")
+    log.info("=== Pipeline complete ===")
     log.info(f"Raw entries scraped:  {total_raw}")
     log.info(f"Triples written:      {total_written}")
     log.info(validator.report())
@@ -202,13 +179,12 @@ def main():
         log.error("No triples written — check scraper output and env vars")
         sys.exit(1)
 
-    # Push to HF Hub
-    if not args.no_push and not args.dry_run:
-        log.info(f"Pushing to HuggingFace Hub...")
+    if not no_push:
+        log.info("Pushing to HuggingFace Hub...")
         url = push(str(output_path))
         log.info(f"Dataset live: {url}")
     else:
-        log.info("Skipping HF push (--no-push or --dry-run)")
+        log.info("Skipping HF push (--no-push or --scrape-only)")
 
     log.info(f"Output: {output_path} ({total_written} triples)")
 

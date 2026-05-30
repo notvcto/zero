@@ -4,22 +4,22 @@ This directory contains the data pipeline for building Zero's seed training corp
 
 ## Overview
 
-The pipeline scrapes CTF writeups and security challenges from four sources,
-normalizes them into structured triples, enriches the reasoning chain via Claude,
-and publishes the final dataset to HuggingFace.
+The pipeline scrapes CTF writeups and security challenges from multiple sources,
+normalizes them into structured triples, and publishes the final dataset to HuggingFace.
+Enrichment of the reasoning chain is a separate manual step via Claude Code using
+prompts in `enrich_prompt.md`.
 
 ```
 phase2/
   pipeline/
     scrapers/
-      ctftime.py        CTFtime writeup scraper
+      github.py         GitHub CTF writeup repos (topic:ctf-writeups)
       picoctf.py        PicoCTF problem archive
       htb_official.py   HTB API (retired machines)
       htb_community.py  0xdf blog + IppSec transcripts
     normalize.py        Extract structure from raw text
-    enrich.py           Claude hybrid reasoning chain generation
     inject.py           Uncertainty injection (10% abstention triples)
-    validate.py         Schema validation + deduplication
+    validate.py         Schema validation + deduplication + canary detection
     push.py             HuggingFace Hub upload
   run.py                Pipeline orchestrator
   schema.py             Triple dataclass + validators
@@ -34,9 +34,9 @@ Each training sample is a triple:
 ```json
 {
   "id": "abc123def456789a",
-  "source": "ctftime",
+  "source": "github",
   "category": "web",
-  "difficulty": "medium",
+  "difficulty": "unknown",
   "challenge": "Clean problem statement...",
   "reasoning_chain": "Step-by-step reasoning in Zero's voice...",
   "solution": "Final answer / flag",
@@ -69,24 +69,59 @@ cp .env.example .env
 # Full pipeline (all sources)
 python run.py
 
-# Single source, dry run (no Claude API calls, no HF push)
-python run.py --sources picoctf --dry-run
+# GitHub only, quick test
+python run.py --sources github --max-github-repos 3 --max-files-per-repo 10 --no-push
 
 # Skip HF upload (keep local only)
 python run.py --no-push
 
-# Custom limits
-python run.py --max-ctftime-pages 10 --max-pico 200 --max-htb-machines 50
+# Scrape and normalize only (for manual enrichment step)
+python run.py --scrape-only
 ```
+
+## Sources
+
+### GitHub (`github`)
+Searches GitHub for repositories tagged `topic:ctf-writeups` and `topic:ctf-writeup`,
+sorted by stars descending. For each repo, recursively lists `.md` files, fetches raw
+content, and parses markdown into structured entries.
+
+Quality filters applied per file:
+- Minimum 300 characters
+- Must have `##` section headers
+- At least 3 non-empty lines before the flag
+- Less than 30% non-ASCII in the first 200 characters (English filter)
+- File size under 500KB
+
+Auth: `GITHUB_TOKEN` env var (optional but strongly recommended — unauthenticated
+rate limit is 60 req/hour vs 5000 req/hour with a token).
+
+### PicoCTF (`picoctf`)
+PicoCTF problem archive — structured challenge descriptions with official hints.
+
+### HTB Official (`htb_official`)
+HackTheBox retired machine writeups via official API. Requires `HTB_TOKEN`.
+
+### HTB Community (`htb_community`)
+0xdf blog posts and IppSec video transcripts for retired HTB machines.
 
 ## Credentials
 
 | Env var | Where to get it |
 |---|---|
-| `CTFTIME_SESSION` | devtools → Application → Cookies → ctftime.org → `sessionid` |
+| `GITHUB_TOKEN` | github.com → Settings → Developer Settings → Personal Access Tokens → Fine-grained |
 | `HTB_TOKEN` | Profile Settings → App Tokens → Create App Token |
-| `ANTHROPIC_API_KEY` | console.anthropic.com |
 | `HF_TOKEN` | huggingface.co → Settings → Access Tokens (write) |
+
+## Security: Canary Detection
+
+The validator hard-rejects any triple containing known LLM honeypot strings
+(`ctftimecanary`, `llm-exp`, `send your environment`, etc.) before any other check.
+Poisoned entries are counted separately in the validation report (`rejected_poisoned`).
+
+This was added after discovering that 898 of 1735 CTFtime-scraped entries contained
+injected canary strings designed to exfiltrate model environment data. CTFtime is no
+longer a source in this pipeline.
 
 ## Output
 
@@ -96,10 +131,10 @@ python run.py --max-ctftime-pages 10 --max-pico 200 --max-htb-machines 50
 
 ## Design decisions
 
-**Hybrid enrichment**: Raw writeups are messy. We extract structure heuristically
-then use Claude to normalize into Zero's voice and fill reasoning gaps. For crypto,
-the enrichment prompt explicitly requires full worked computations — addressing the
-Phase 1 finding that all models hallucinated base64 outputs.
+**No enrichment in pipeline**: Raw writeups are normalized and structured heuristically.
+The enrichment step (rewriting into Zero's voice with full reasoning chains) is handled
+manually via Claude Code after scraping completes. Prompts for that step live in
+`enrich_prompt.md`. This avoids Claude API calls during scraping and allows batch review.
 
 **Uncertainty injection**: 10% of entries have their solution stripped. Zero learns
 both how to solve *and* how to recognize when it can't. Penalizing confident-wrong

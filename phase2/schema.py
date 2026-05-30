@@ -22,7 +22,7 @@ class Category(str, Enum):
 
 
 class Source(str, Enum):
-    CTFTIME = "ctftime"
+    GITHUB = "github"
     PICOCTF = "picoctf"
     HTB_OFFICIAL = "htb_official"
     HTB_COMMUNITY = "htb_community"
