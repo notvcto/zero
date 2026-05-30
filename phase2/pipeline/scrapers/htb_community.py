@@ -8,7 +8,9 @@ No auth required for 0xdf. yt-dlp handles YouTube.
 
 import re
 import time
+import random
 import logging
+from datetime import date
 import subprocess
 import json
 import tempfile
@@ -172,6 +174,9 @@ def scrape_oxdf(max_posts: int = 100) -> Iterator[RawEntry]:
     index = _scrape_oxdf_index()
     log.info(f"found {len(index)} 0xdf HTB posts")
 
+    daily_seed = int(date.today().strftime("%Y%m%d"))
+    random.Random(daily_seed).shuffle(index)
+
     for i, post in enumerate(index[:max_posts]):
         entry = _scrape_oxdf_post(post["url"], post["title"], post.get("tags", []))
         if entry:
@@ -281,7 +286,10 @@ def scrape_ippsec(max_videos: int = 50) -> Iterator[RawEntry]:
         return
 
     log.info("scraping IppSec YouTube transcripts...")
-    videos = _get_ippsec_videos(max_videos)[:max_videos]
+    videos = _get_ippsec_videos(max_videos)
+    daily_seed = int(date.today().strftime("%Y%m%d"))
+    random.Random(daily_seed).shuffle(videos)
+    videos = videos[:max_videos]
     log.info(f"found {len(videos)} IppSec videos (limit: {max_videos})")
 
     for video in videos:

@@ -16,3 +16,5 @@ env/
 
 # data
 phase2/data/
+**/__pycache__/
+**/*.pyc

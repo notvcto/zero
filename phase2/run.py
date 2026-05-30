@@ -145,10 +145,14 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     validator = Validator()
+    existing = validator.load_existing(output_path)
+    if existing:
+        log.info(f"Resuming: loaded {existing} existing entries")
+
     total_raw = 0
     total_written = 0
 
-    with open(output_path, "w", encoding="utf-8") as out_f:
+    with open(output_path, "a", encoding="utf-8") as out_f:
         for entry in iter_raw_entries(args.sources, args):
             total_raw += 1
 

@@ -41,6 +41,33 @@ class Validator:
             "rejected_duplicate": 0,
         }
 
+    def load_existing(self, path) -> int:
+        """Pre-load IDs and content hashes from an existing JSONL file.
+        Returns the number of entries loaded."""
+        import pathlib
+        p = pathlib.Path(path)
+        if not p.exists():
+            return 0
+        loaded = 0
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    triple_id = data.get("id", "")
+                    challenge = data.get("challenge", "")
+                    if triple_id:
+                        self._seen_ids.add(triple_id)
+                    if challenge:
+                        ch = hashlib.md5(challenge.lower().strip().encode()).hexdigest()
+                        self._seen_hashes.add(ch)
+                    loaded += 1
+                except json.JSONDecodeError:
+                    continue
+        return loaded
+
     def accept(self, triple: Triple) -> bool:
         """Return True if triple passes validation and deduplication."""
         # Hard reject poisoned entries before any other check

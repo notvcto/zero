@@ -10,7 +10,9 @@ Rate: 0.5s between requests; pause if X-RateLimit-Remaining < 100
 
 import re
 import time
+import random
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Iterator
 
@@ -70,6 +72,8 @@ NON_CTF_BLOCKLIST = [
 ]
 
 MAX_FILE_SIZE = 500 * 1024  # 500KB
+
+DAILY_SEED = int(date.today().strftime("%Y%m%d"))
 
 
 class GitHubScraper:
@@ -136,6 +140,7 @@ class GitHubScraper:
                     repos.append(item)
 
         repos.sort(key=lambda r: r.get("stargazers_count", 0), reverse=True)
+        random.Random(DAILY_SEED).shuffle(repos)
 
         filtered = []
         for r in repos:
@@ -172,8 +177,10 @@ class GitHubScraper:
                 continue
             files.append({"path": path, "sha": item.get("sha")})
 
-        # Prefer deeper paths (individual challenge writeups over index files)
+        # Sort by depth so challenge writeups rank above index files,
+        # then shuffle within same-depth groups for daily variety
         files.sort(key=lambda f: -f["path"].count("/"))
+        random.Random(DAILY_SEED).shuffle(files)
         return files[: self.max_files_per_repo]
 
     def fetch_raw(self, owner: str, repo: str, branch: str, path: str) -> str | None:
