@@ -35,12 +35,15 @@ implementation, self-play failure mode mitigations, evaluation framework, datase
 
 ## Status
 
-**Phase 2 — Dataset construction.** The seed corpus pipeline is built and running:
-four scrapers (CTFtime, PicoCTF, HTB official API, HTB community writeups), normalization,
-uncertainty injection, and a push to HuggingFace. Enrichment pass starts tomorrow.
-Dataset will be public at `notvcto/zero-dataset` once complete.
+**Phase 2 — Dataset construction.** First scraping attempt (CTFtime + HTB) produced
+1,735 raw entries, 898 of which contained LLM honeypot injections embedded in
+CTFtime writeups. CTFtime is no longer a source. The pipeline now scrapes GitHub
+repos tagged `topic:ctf-writeups`, sorted by stars — structured markdown, no
+honeypots, quality-signaled. Overnight run in progress.
 
-**[Phase 2 write-up →](https://notvc.to/blog/zero-phase2-raw-material)**
+**[Phase 2: the scraper lied →](https://notvc.to/blog/zero-phase2-the-scraper-lied)**
+
+**[Phase 2: raw material →](https://notvc.to/blog/zero-phase2-raw-material)**
 
 Phase 1 baseline evaluation is complete. All three model sizes scored ~25% with no
 training. Scaling did nothing — the capability gap is in training signal, not base
