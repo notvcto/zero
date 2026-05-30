@@ -95,37 +95,41 @@ def _scrape_oxdf_index() -> list[dict]:
     """Return list of {title, url, tags} from 0xdf's HTB posts."""
     entries = []
 
-    # 0xdf uses Jekyll with tag pages; scrape the htb tag index
+    # Primary: tags.html — Jekyll site with id="hackthebox" h2 section
     soup = _get(f"{OXDF_BASE}/tags.html")
-    if not soup:
-        # fallback: parse the RSS feed
-        soup = _get_xml(OXDF_FEED)
-        if not soup:
+    if soup:
+        # h2 has text like "hackthebox[570]" with a <small> child — match by id
+        htb_section = soup.find("h2", id="hackthebox")
+        if htb_section:
+            ul = htb_section.find_next_sibling("ul")
+            if ul:
+                for li in ul.find_all("li"):
+                    a = li.find("a")
+                    if a:
+                        href = a.get("href", "")
+                        if not href.startswith("http"):
+                            href = OXDF_BASE + href
+                        entries.append({
+                            "title": a.get_text(strip=True),
+                            "url": href,
+                            "tags": ["hackthebox"],
+                        })
+        if entries:
             return entries
-        for item in soup.find_all("item")[:200]:
-            title = item.find("title").get_text(strip=True) if item.find("title") else ""
-            link = item.find("link").get_text(strip=True) if item.find("link") else ""
-            cats = [c.get_text(strip=True).lower() for c in item.find_all("category")]
-            if "hackthebox" in cats or "htb" in " ".join(cats):
-                entries.append({"title": title, "url": link, "tags": cats})
-        return entries
 
-    # Parse tag index for HTB posts
-    htb_section = soup.find("h2", string=re.compile("hackthebox|htb", re.IGNORECASE))
-    if htb_section:
-        ul = htb_section.find_next("ul")
-        if ul:
-            for li in ul.find_all("li"):
-                a = li.find("a")
-                if a:
-                    href = a.get("href", "")
-                    if not href.startswith("http"):
-                        href = OXDF_BASE + href
-                    entries.append({
-                        "title": a.get_text(strip=True),
-                        "url": href,
-                        "tags": ["hackthebox"],
-                    })
+    # Fallback: Atom feed (only ~10 most recent posts)
+    log.warning("tags.html parse failed, falling back to Atom feed")
+    soup = _get_xml(OXDF_FEED)
+    if not soup:
+        return entries
+    for entry in soup.find_all("entry")[:200]:
+        title_tag = entry.find("title")
+        title = title_tag.get_text(strip=True) if title_tag else ""
+        link_tag = entry.find("link", rel="alternate") or entry.find("link")
+        link = link_tag.get("href", "") if link_tag else ""
+        cats = [c.get("term", "").lower() for c in entry.find_all("category")]
+        if "hackthebox" in cats or "htb" in " ".join(cats):
+            entries.append({"title": title, "url": link, "tags": cats})
 
     return entries
 
@@ -211,6 +215,34 @@ def _get_ippsec_videos(max_videos: int) -> list[dict]:
         return []
 
 
+def _clean_vtt(vtt: str) -> str:
+    """Parse a VTT subtitle file into clean prose."""
+    # Strip inline timestamp tags: <00:00:00.480>, <c>, </c>, <00:00:00.480><c>, etc.
+    tag_re = re.compile(r"<[^>]+>")
+    seen = []
+    for line in vtt.splitlines():
+        line = line.strip()
+        # Skip blank lines, WEBVTT header, NOTE blocks, cue timestamps, and
+        # metadata lines like "Kind: captions" / "Language: en"
+        if not line:
+            continue
+        if line.startswith("WEBVTT") or line.startswith("NOTE") or line.startswith("Kind:") or line.startswith("Language:"):
+            continue
+        if "-->" in line:
+            continue
+        # Skip pure numeric cue IDs
+        if line.isdigit():
+            continue
+        # Strip all remaining inline VTT tags
+        line = tag_re.sub("", line).strip()
+        if not line:
+            continue
+        # Deduplicate consecutive identical lines (VTT word-by-word captions repeat)
+        if not seen or seen[-1] != line:
+            seen.append(line)
+    return " ".join(seen)
+
+
 def _fetch_transcript(video_id: str) -> str | None:
     """Fetch auto-generated subtitles for a YouTube video."""
     try:
@@ -235,28 +267,22 @@ def _fetch_transcript(video_id: str) -> str | None:
                 if fname.endswith(".vtt"):
                     with open(os.path.join(tmpdir, fname)) as f:
                         vtt = f.read()
-                    # Strip VTT headers and timestamps
-                    lines = []
-                    for line in vtt.splitlines():
-                        if "-->" in line or line.startswith("WEBVTT") or not line.strip():
-                            continue
-                        # Remove duplicate lines (VTT often repeats)
-                        if not lines or lines[-1] != line.strip():
-                            lines.append(line.strip())
-                    return " ".join(lines)
+                    return _clean_vtt(vtt)
     except Exception as e:
         log.warning(f"transcript fetch failed {video_id}: {e}")
     return None
 
 
 def scrape_ippsec(max_videos: int = 50) -> Iterator[RawEntry]:
+    if max_videos == 0:
+        return
     if not _yt_dlp_available():
         log.warning("yt-dlp not available, skipping IppSec scrape. Install with: pip install yt-dlp")
         return
 
     log.info("scraping IppSec YouTube transcripts...")
-    videos = _get_ippsec_videos(max_videos)
-    log.info(f"found {len(videos)} IppSec videos")
+    videos = _get_ippsec_videos(max_videos)[:max_videos]
+    log.info(f"found {len(videos)} IppSec videos (limit: {max_videos})")
 
     for video in videos:
         vid_id = video["id"]
@@ -291,7 +317,8 @@ def scrape_ippsec(max_videos: int = 50) -> Iterator[RawEntry]:
 
 def scrape(max_oxdf: int = 100, max_ippsec: int = 50) -> Iterator[RawEntry]:
     yield from scrape_oxdf(max_posts=max_oxdf)
-    yield from scrape_ippsec(max_videos=max_ippsec)
+    if max_ippsec is not None:
+        yield from scrape_ippsec(max_videos=max_ippsec)
 
 
 if __name__ == "__main__":

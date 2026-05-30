@@ -70,8 +70,8 @@ def _parse_category(os_name: str, tags: list) -> str:
     return "misc"
 
 
-def _build_raw_text(machine: dict, writeup: dict | None) -> str:
-    """Build rich raw text from machine data + official writeup if available."""
+def _build_raw_text(machine: dict) -> str:
+    """Build raw text from machine profile metadata (no writeup — VIP-only)."""
     name = machine.get("name", "")
     os_name = machine.get("os", "")
     difficulty = machine.get("difficultyText", "")
@@ -86,17 +86,10 @@ def _build_raw_text(machine: dict, writeup: dict | None) -> str:
         "",
     ]
 
-    if writeup:
-        content = writeup.get("content", "") or writeup.get("description", "")
-        if content:
-            lines.append("Official Writeup:")
-            lines.append(content)
-
-    # Add tags as context
     tags = machine.get("tags", [])
     if tags:
         tag_names = [t.get("name", "") for t in tags]
-        lines.append(f"\nTechniques: {', '.join(tag_names)}")
+        lines.append(f"Techniques: {', '.join(tag_names)}")
 
     return "\n".join(lines)
 
@@ -140,17 +133,11 @@ def scrape(token: str, max_machines: int = 200) -> Iterator[RawEntry]:
 
             # Fetch full machine profile for tags
             profile = _get(session, f"{API_BASE}/machine/profile/{name}")
-            tags = profile.get("info", {}).get("tags", []) if profile else []
+            machine_full = profile.get("info", machine) if profile else machine
+            tags = machine_full.get("tags", [])
             category = _parse_category(os_name, tags)
 
-            # Try to fetch official writeup (available for retired machines)
-            writeup = None
-            writeup_data = _get(session, f"{API_BASE}/machine/writeup/{machine_id}")
-            if writeup_data:
-                writeup = writeup_data.get("data") or writeup_data
-
-            machine_full = profile.get("info", machine) if profile else machine
-            raw_text = _build_raw_text(machine_full, writeup)
+            raw_text = _build_raw_text(machine_full)
 
             if len(raw_text.strip()) < 50:
                 continue
@@ -165,7 +152,7 @@ def scrape(token: str, max_machines: int = 200) -> Iterator[RawEntry]:
                 metadata={
                     "machine_id": machine_id,
                     "os": os_name,
-                    "has_writeup": writeup is not None,
+                    "has_writeup": False,
                 },
             )
             log.info(f"  ✓ {name} [{category}] [{difficulty}]")

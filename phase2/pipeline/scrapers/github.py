@@ -50,6 +50,13 @@ WRITEUP_KEYWORDS = [
     "curl", "pickle", "serial", "decompil", "disassem",
 ]
 
+# Files accepted via keyword path (no flag pattern) must also contain
+# one of these to confirm CTF context — prevents library READMEs and changelogs
+CTF_CONTEXT_TERMS = [
+    "ctf", "hackthebox", " htb", "picoctf", "capture the flag",
+    "flag{", "flag :", "the flag",
+]
+
 # Repo-level blocklist: substrings to reject in repo name or description.
 # Simple substring match — no regex edge cases with word boundaries.
 NON_CTF_BLOCKLIST = [
@@ -196,12 +203,13 @@ class GitHubScraper:
             if len([l for l in pre_flag.splitlines() if l.strip()]) >= 3:
                 return True, flag_match.group(1)
 
-        # Fallback: 3+ ## headers AND 2+ writeup keywords
+        # Fallback: 3+ ## headers AND 2+ writeup keywords AND CTF context term
         header_count = len(re.findall(r"^##+ ", content, re.MULTILINE))
         if header_count >= 3:
             lower = content.lower()
             hits = sum(1 for kw in WRITEUP_KEYWORDS if kw in lower)
-            if hits >= 2:
+            has_ctf_context = any(t in lower for t in CTF_CONTEXT_TERMS)
+            if hits >= 2 and has_ctf_context:
                 return True, None
 
         return False, None

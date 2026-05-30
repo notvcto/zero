@@ -26,7 +26,7 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 from schema import Triple, RawEntry
-from pipeline.scrapers import github, picoctf, htb_official, htb_community
+from pipeline.scrapers import github, htb_official, htb_community
 from pipeline.normalize import normalize
 from pipeline.inject import inject
 from pipeline.validate import Validator
@@ -48,8 +48,8 @@ def parse_args():
     p.add_argument(
         "--sources",
         nargs="+",
-        choices=["github", "picoctf", "htb_official", "htb_community"],
-        default=["github", "picoctf", "htb_official", "htb_community"],
+        choices=["github", "htb_official", "htb_community"],
+        default=["github", "htb_official", "htb_community"],
         help="Which sources to scrape (default: all)",
     )
     p.add_argument("--scrape-only", action="store_true", help="Scrape + normalize only, skip HF push")
@@ -57,7 +57,6 @@ def parse_args():
     p.add_argument("--output", default="data/seed.jsonl", help="Output JSONL path")
     p.add_argument("--max-github-repos", type=int, default=100)
     p.add_argument("--max-files-per-repo", type=int, default=50)
-    p.add_argument("--max-pico", type=int, default=500)
     p.add_argument("--max-htb-machines", type=int, default=200)
     p.add_argument("--max-oxdf", type=int, default=100)
     p.add_argument("--max-ippsec", type=int, default=50)
@@ -92,10 +91,6 @@ def iter_raw_entries(sources: list[str], args) -> iter:
             max_repos=args.max_github_repos,
             max_files_per_repo=args.max_files_per_repo,
         )
-
-    if "picoctf" in sources:
-        log.info("=== PicoCTF ===")
-        yield from picoctf.scrape(max_challenges=args.max_pico)
 
     if "htb_official" in sources:
         log.info("=== HTB Official ===")
