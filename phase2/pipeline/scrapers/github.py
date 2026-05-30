@@ -35,6 +35,19 @@ CATEGORY_KEYWORDS = {
 SEARCH_QUERIES = [
     "topic:ctf-writeups",
     "topic:ctf-writeup",
+    "topic:ctf language:markdown stars:>10",
+    "ctf writeup language:markdown stars:>50",
+]
+
+# Security keywords that signal a real writeup (not just a tool list or README)
+WRITEUP_KEYWORDS = [
+    "exploit", "payload", "reverse", "decrypt", "inject", "overflow",
+    "bypass", "shellcode", "privesc", "enumerat", "nmap", "burp",
+    "ghidra", "gdb", "pwntools",
+    # common in simpler writeups
+    "xor", "decode", "base64", "cipher", "hash", "binary", "strings",
+    "script", "python", "analyze", "encode", "ascii", "hex", "brute",
+    "curl", "pickle", "serial", "decompil", "disassem",
 ]
 
 # Repo-level blocklist: substrings to reject in repo name or description.
@@ -152,6 +165,8 @@ class GitHubScraper:
                 continue
             files.append({"path": path, "sha": item.get("sha")})
 
+        # Prefer deeper paths (individual challenge writeups over index files)
+        files.sort(key=lambda f: -f["path"].count("/"))
         return files[: self.max_files_per_repo]
 
     def fetch_raw(self, owner: str, repo: str, branch: str, path: str) -> str | None:
@@ -173,6 +188,24 @@ class GitHubScraper:
         non_ascii = sum(1 for c in sample if ord(c) > 127)
         return (non_ascii / len(sample)) <= 0.30
 
+    def _has_writeup_signal(self, content: str) -> tuple[bool, str | None]:
+        """Return (accepted, flag_or_None). Accept if flag present OR writeup keyword signal."""
+        flag_match = FLAG_RE.search(content)
+        if flag_match:
+            pre_flag = content[: flag_match.start()]
+            if len([l for l in pre_flag.splitlines() if l.strip()]) >= 3:
+                return True, flag_match.group(1)
+
+        # Fallback: 3+ ## headers AND 2+ writeup keywords
+        header_count = len(re.findall(r"^##+ ", content, re.MULTILINE))
+        if header_count >= 3:
+            lower = content.lower()
+            hits = sum(1 for kw in WRITEUP_KEYWORDS if kw in lower)
+            if hits >= 2:
+                return True, None
+
+        return False, None
+
     def _parse_markdown(self, content: str) -> dict | None:
         if len(content) < 300:
             return None
@@ -181,17 +214,12 @@ class GitHubScraper:
         if not self._is_english(content):
             return None
 
-        # Require at least one flag pattern — hard gate for non-writeup files
-        flag_match = FLAG_RE.search(content)
-        if flag_match is None:
-            return None
-        flag = flag_match.group(1)
-
-        pre_flag = content[: flag_match.start()]
-        if len([l for l in pre_flag.splitlines() if l.strip()]) < 3:
+        accepted, flag = self._has_writeup_signal(content)
+        if not accepted:
             return None
 
         # Split into sections on ## headers
+
         sections = re.split(r"^##+ ", content, flags=re.MULTILINE)
         sections = [s.strip() for s in sections if s.strip()]
 
